@@ -28,6 +28,8 @@ sudo systemctl enable --now mumble-server
   `TARGET_CHANNEL` in the `.env` files to match whatever you pick).
 - **Static IP**: reserve the Pi's LAN IP in the router so the tower has a
   stable address (the tower's `MUMBLE_HOST`).
+- **Firewall**: if `ufw` is enabled on the Pi, allow Mumble:
+  `sudo ufw allow 64738/tcp`.
 
 ## 2. Tailscale (off-network access)
 
@@ -67,12 +69,12 @@ the couch).
 # system deps (libopus is needed to build pymumble's opuslib dependency)
 sudo apt install -y libopus-dev python3-venv
 
-sudo mkdir -p /opt/mumble-listener
-sudo cp -r <this-repo>/pi /opt/mumble-listener/pi
-cd /opt/mumble-listener/pi
+sudo mkdir -p /opt/llm_server
+sudo cp -r <this-repo>/pi /opt/llm_server/pi
+cd /opt/llm_server/pi
 python3 -m venv .venv
 .venv/bin/pip install -r requirements.txt
-cp .env.example .env          # review the values (see §7)
+cp .env.example .env          # fill in YOUR tower values (see §7)
 
 # install the systemd unit (edit User= first)
 sudo cp pi-trigger.service /etc/systemd/system/
@@ -92,9 +94,9 @@ sudo apt install -y libopus-dev ffmpeg python3-venv
 sudo systemctl enable --now ollama
 ollama pull qwen3.5:latest
 
-sudo mkdir -p /opt/mumble-listener
-sudo cp -r <this-repo>/tower /opt/mumble-listener/tower
-cd /opt/mumble-listener/tower
+sudo mkdir -p /opt/llm_server
+sudo cp -r <this-repo>/tower /opt/llm_server/tower
+cd /opt/llm_server/tower
 python3 -m venv .venv
 .venv/bin/pip install -r requirements.txt   # torch is a large download
 cp .env.example .env          # set MUMBLE_HOST = Pi's IP or ts.net hostname
@@ -104,27 +106,43 @@ sudo systemctl daemon-reload
 sudo systemctl enable --now tower-server.service
 ```
 
+- **WOL prerequisite**: enable Wake-on-LAN in the tower's BIOS/UEFI (usually
+  under Power Management; some boards also require disabling ErP/EuP). WOL
+  only works when the Pi and the tower are on the same LAN segment.
+- **Idle-shutdown integration**: if the tower already runs an idle-shutdown
+  script, make sure it treats a lockfile named **`mumble_tower_bot`** in
+  `/var/run/keep-awake.d` as "keep awake" (any old Discord-era lockfile name
+  it checked for no longer exists). The systemd unit creates that directory
+  owned by the service user (`RuntimeDirectory=keep-awake.d`).
+- **First run**: on the first voice utterance, Whisper downloads the `base`
+  model (~140 MB) to `~/.cache/whisper`.
+
 The service blocks on its first Mumble connect and auto-reconnects every ~10 s
 if the Pi is unreachable (e.g., the tower booted before the Pi finished
 starting).
 
-## 7. Values carried over from the old Discord `.env` files
+## 7. Tower values to set in `pi/.env`
 
-These transport-agnostic values were in the old Pi `.env` and are **pre-filled
-in `pi/.env.example`**:
+The tower's connection values are transport-agnostic (they were carried over
+from the old Discord Pi `.env`), but they are **not** committed to this repo —
+`pi/.env.example` ships with stand-in placeholders. When you deploy, set your
+real values in `pi/.env`:
 
-| Value | New location |
+| Variable | What to set |
 |---|---|
-| `TOWER_HOST=10.0.0.12` | `pi/.env` |
-| `WOL_MAC_ADDRESS=B4:2E:99:A1:E1:AC` | `pi/.env` |
-| `TOWER_SSH_USER=mason_callahan` | `pi/.env` |
-| `TOWER_SSH_KEY=~/.ssh/id_ed25519` | `pi/.env` |
+| `TOWER_HOST` | The tower's LAN IP (or Tailscale hostname) |
+| `WOL_MAC_ADDRESS` | The tower's NIC MAC address (for Wake-on-LAN) |
+| `TOWER_SSH_USER` | The SSH user on the tower |
+| `TOWER_SSH_KEY` | Path to the SSH private key on the Pi |
 
 Discord-only values (bot token, channel IDs) are gone for good.
 
 ## 8. First-run test
 
-1. Power the tower **off**.
+0. **WOL sanity check** (tower powered off): from the Pi,
+   `sudo apt install -y wol-cli && wol <your-tower-MAC>` — the tower should
+   power on. (Use the MAC from `pi/.env`.)
+1. Power the tower **off** again.
 2. Join **Home** from the phone.
 3. Within ~5 s the trigger posts *"Server is waking up..."* and sends WOL.
 4. The tower boots; `tower-server` connects to Mumble and posts
@@ -151,7 +169,7 @@ Discord-only values (bot token, channel IDs) are gone for good.
 ```bash
 journalctl -u pi-trigger -f        # Pi trigger logs
 journalctl -u tower-server -f      # Tower pipeline logs
-tail -f ~/mumble_listener/logs/activity.jsonl   # structured activity log
+tail -f ~/llm_server/logs/activity.jsonl   # structured activity log
 tail -f /var/log/mumble-server/mumble-server.log  # murmurd log
 ```
 

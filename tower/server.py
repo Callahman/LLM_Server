@@ -27,7 +27,8 @@ import mumble_client
 load_dotenv()
 
 # --- Mumble ---
-MUMBLE_HOST = os.getenv("MUMBLE_HOST", "10.0.0.11")
+# No real default: MUMBLE_HOST must be set in tower/.env (see tower/.env.example).
+MUMBLE_HOST = os.getenv("MUMBLE_HOST", "")
 MUMBLE_PORT = int(os.getenv("MUMBLE_PORT", "64738"))
 MUMBLE_USER = os.getenv("MUMBLE_USER", "tower-bot")
 MUMBLE_PASSWORD = os.getenv("MUMBLE_PASSWORD", "")
@@ -52,9 +53,9 @@ MAX_UTTERANCE_MS = int(os.getenv("MAX_UTTERANCE_MS", "30000"))
 MIN_UTTERANCE_MS = int(os.getenv("MIN_UTTERANCE_MS", "300"))
 
 # --- Archive / logs ---
-AUDIO_ARCHIVE_DIR = os.path.expanduser(os.getenv("AUDIO_ARCHIVE_DIR", "~/mumble_listener/archive"))
+AUDIO_ARCHIVE_DIR = os.path.expanduser(os.getenv("AUDIO_ARCHIVE_DIR", "~/llm_server/archive"))
 AUDIO_RETENTION_GB = float(os.getenv("AUDIO_RETENTION_GB", "5"))
-LOG_DIR = os.path.expanduser(os.getenv("LOG_DIR", "~/mumble_listener/logs"))
+LOG_DIR = os.path.expanduser(os.getenv("LOG_DIR", "~/llm_server/logs"))
 
 # --- Keep-awake ---
 KEEP_AWAKE_DIR = os.getenv("KEEP_AWAKE_DIR", "/var/run/keep-awake.d")
@@ -265,6 +266,11 @@ def keep_awake():
 
 
 def main():
+    if not MUMBLE_HOST:
+        raise SystemExit(
+            "Missing required config: MUMBLE_HOST — set it in tower/.env "
+            "(see tower/.env.example for the template)."
+        )
     global bot, pipeline
     pipeline = audio_pipeline.AudioPipeline(
         job_queue,

@@ -5,11 +5,11 @@ Wants=network-online.target
 
 [Service]
 # Set to the Linux user that runs the service (the user that owns
-# /opt/mumble-listener/pi and whose SSH key is used for the tower).
+# /opt/llm_server/pi and whose SSH key is used for the tower).
 User=pi
 Type=simple
-WorkingDirectory=/opt/mumble-listener/pi
-ExecStart=/opt/mumble-listener/pi/.venv/bin/python trigger.py
+WorkingDirectory=/opt/llm_server/pi
+ExecStart=/opt/llm_server/pi/.venv/bin/python trigger.py
 Restart=always
 RestartSec=5
 

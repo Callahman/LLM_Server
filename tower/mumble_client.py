@@ -92,11 +92,20 @@ class MumbleBot:
             self.channel.send_text_message(text)
 
     def occupancy(self):
-        """List of (session, name) in the target channel, excluding ourselves."""
+        """List of (session, name) in the target channel, excluding ourselves.
+
+        Called from the keep-awake thread while the pymumble thread may be
+        mutating the user dict (users joining/leaving); a failed iteration is
+        not an error — report empty and let the next tick retry.
+        """
         if self.channel is None:
             return []
         me = self.mumble.users.myself_session
-        return [(u["session"], u.get("name")) for u in self.channel.get_users()
+        try:
+            users = list(self.channel.get_users())
+        except RuntimeError:
+            return []
+        return [(u["session"], u.get("name")) for u in users
                 if u["session"] != me]
 
     def my_session(self):

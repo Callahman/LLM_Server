@@ -1,4 +1,4 @@
-# Mumble Listener
+# LLM Server
 
 A self-hosted Mumble voice + text pipeline that replaces the old Discord
 setup. No gateway, no API tokens, no third-party ToS — just a murmurd on the
@@ -42,7 +42,7 @@ Pi and two small Python services.
 ## Repository layout
 
 ```
-Mumble_Listener/
+LLM_Server/
 ├── README.md                  # this file
 ├── SETUP.md                   # full deployment guide (read this)
 ├── murmurd/
@@ -50,14 +50,14 @@ Mumble_Listener/
 ├── pi/
 │   ├── trigger.py             # Mumble trigger: WOL + SSH keepalive
 │   ├── requirements.txt
-│   ├── .env.example
+│   ├── .env.example           # template with stand-in placeholders
 │   └── pi-trigger.service     # systemd unit
 └── tower/
     ├── server.py              # entry point: wires everything together
     ├── mumble_client.py       # pymumble connection wrapper + push
     ├── audio_pipeline.py      # per-user buffer + utterance detection
     ├── requirements.txt
-    ├── .env.example
+    ├── .env.example           # template with stand-in placeholders
     └── tower-server.service   # systemd unit
 ```
 
@@ -76,6 +76,7 @@ Mumble_Listener/
 - Callbacks run in the pymumble thread; our services keep that thread short
   (audio frames are handed to a worker queue; the library itself runs text
   callbacks in their own thread).
-- The transport-agnostic values from the old Discord `.env` files (tower host,
-  WOL MAC, SSH user/key) are pre-filled in `pi/.env.example` and listed in
-  `SETUP.md` §7.
+- The tower connection values (host, WOL MAC, SSH user/key) are **not**
+  committed — `pi/.env.example` ships with stand-in placeholders, and the real
+  `.env` is gitignored. Set your own values in `pi/.env` on deploy (see
+  `SETUP.md` §7).

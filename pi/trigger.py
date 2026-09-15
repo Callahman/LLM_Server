@@ -41,9 +41,10 @@ MUMBLE_PASSWORD = os.getenv("MUMBLE_PASSWORD", "")
 TARGET_CHANNEL = os.getenv("TARGET_CHANNEL", "Home")
 
 # --- Tower ---
-TOWER_HOST = os.getenv("TOWER_HOST", "10.0.0.12")
-WOL_MAC_ADDRESS = os.getenv("WOL_MAC_ADDRESS", "B4:2E:99:A1:E1:AC")
-TOWER_SSH_USER = os.getenv("TOWER_SSH_USER", "mason_callahan")
+# No real defaults: these must be set in pi/.env (see pi/.env.example).
+TOWER_HOST = os.getenv("TOWER_HOST", "")
+WOL_MAC_ADDRESS = os.getenv("WOL_MAC_ADDRESS", "")
+TOWER_SSH_USER = os.getenv("TOWER_SSH_USER", "")
 TOWER_SSH_KEY = os.getenv("TOWER_SSH_KEY", "~/.ssh/id_ed25519")
 
 # --- Behavior ---
@@ -284,6 +285,16 @@ class Trigger:
 
 
 def main():
+    missing = [name for name, val in (
+        ("TOWER_HOST", TOWER_HOST),
+        ("WOL_MAC_ADDRESS", WOL_MAC_ADDRESS),
+        ("TOWER_SSH_USER", TOWER_SSH_USER),
+    ) if not val]
+    if missing:
+        raise SystemExit(
+            "Missing required config: %s — set them in pi/.env "
+            "(see pi/.env.example for the template)." % ", ".join(missing)
+        )
     t = Trigger()
     t.start()
     log.info("trigger running (channel=%r, tower=%s@%s)",

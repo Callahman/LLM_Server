@@ -1,0 +1,10 @@
+# Environment files (contain real values — never commit)
+.env
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+
+# Runtime artifacts
+*.log
