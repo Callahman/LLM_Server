@@ -1,0 +1,81 @@
+# Mumble Listener
+
+A self-hosted Mumble voice + text pipeline that replaces the old Discord
+setup. No gateway, no API tokens, no third-party ToS — just a murmurd on the
+Pi and two small Python services.
+
+## How it works
+
+```
++-------------------------------------------------------------------+
+| Pi (always on)                                                    |
+|                                                                   |
+|  murmurd (port 64738)  <----  phone Mumble app / desktop client   |
+|                                                                   |
+|  pi/trigger.py:                                                   |
+|    channel occupancy + text messages                              |
+|      -> Wake-on-LAN the tower                                     |
+|      -> long-lived SSH keepalive while people are in the channel  |
++-----------------------------|-------------------------------------+
+                              | WOL / SSH (LAN)
+                              v
++-------------------------------------------------------------------+
+| Tower (sleeps when idle)                                          |
+|                                                                   |
+|  tower/server.py:                                                 |
+|    pymumble client (auto-reconnect)                               |
+|      voice: per-user PCM buffer -> utterance detection            |
+|              -> Whisper (transcribe) -> Ollama (LLM)              |
+|              -> Mumble text message                               |
+|      text:  Mumble text message -> Ollama -> Mumble text message  |
+|    keep-awake lockfile for the tower's idle-shutdown integration  |
++-------------------------------------------------------------------+
+```
+
+- **Phone / desktop**: any Mumble client, joined to the `Home` channel.
+- **Pi**: runs murmurd (a plain OS service) and the trigger service. The Pi
+  never runs a demanding real-time pipeline — that was the original failure
+  mode of the Discord setup.
+- **Tower**: the only machine that runs Whisper + Ollama. It wakes on demand
+  and is kept alive while the channel has people in it.
+
+## Repository layout
+
+```
+Mumble_Listener/
+├── README.md                  # this file
+├── SETUP.md                   # full deployment guide (read this)
+├── murmurd/
+│   └── mumble-server.ini      # reference murmurd config for the Pi
+├── pi/
+│   ├── trigger.py             # Mumble trigger: WOL + SSH keepalive
+│   ├── requirements.txt
+│   ├── .env.example
+│   └── pi-trigger.service     # systemd unit
+└── tower/
+    ├── server.py              # entry point: wires everything together
+    ├── mumble_client.py       # pymumble connection wrapper + push
+    ├── audio_pipeline.py      # per-user buffer + utterance detection
+    ├── requirements.txt
+    ├── .env.example
+    └── tower-server.service   # systemd unit
+```
+
+## Quick start
+
+1. Read `SETUP.md` and deploy (murmurd on the Pi, Tailscale, both services).
+2. Join the `Home` channel from the phone — the tower wakes up.
+3. Speak or type — the bot answers in the channel.
+
+## Notes
+
+- `pymumble` (1.6.1) is the Mumble client library. Its media path is
+  TCP-tunneled only (no UDP), which is fine for a self-hosted LAN/tailnet.
+  Audio arrives already decoded as 16-bit 48 kHz mono PCM — no Opus decoding
+  in our code.
+- Callbacks run in the pymumble thread; our services keep that thread short
+  (audio frames are handed to a worker queue; the library itself runs text
+  callbacks in their own thread).
+- The transport-agnostic values from the old Discord `.env` files (tower host,
+  WOL MAC, SSH user/key) are pre-filled in `pi/.env.example` and listed in
+  `SETUP.md` §7.

@@ -1,0 +1,19 @@
+[Unit]
+Description=Mumble tower pipeline (voice + text -> Whisper + Ollama -> Mumble)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+# Set to the Linux user that runs the service.
+User=mason_callahan
+Type=simple
+WorkingDirectory=/opt/mumble-listener/tower
+ExecStart=/opt/mumble-listener/tower/.venv/bin/python server.py
+# The idle-shutdown script reads lockfiles from /var/run/keep-awake.d;
+# this makes systemd create the directory owned by the service user.
+RuntimeDirectory=keep-awake.d
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

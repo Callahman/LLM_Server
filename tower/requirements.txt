@@ -1,0 +1,7 @@
+# pymumble pulls in opuslib (needs libopus-dev to build) and protobuf
+pymumble==1.6.1
+python-dotenv>=1.0.0
+# openai-whisper pulls in torch (large download) and numpy
+openai-whisper>=20231117
+openai>=1.0.0
+numpy>=1.24.0
