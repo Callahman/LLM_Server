@@ -189,12 +189,12 @@ def on_sound(session, name, pcm):
 
 def on_text(message):
     # message: mumble_pb2.TextMessage (already running in its own thread)
-    # Mumble's TextMessage has no "type" field — derive it from the
-    # addressing fields: empty session = server message, channel_id set
-    # = channel message, otherwise private message.
-    if not message.session:
-        return  # server message
-    sender = message.session[0]
+    # Mumble's TextMessage has no "type" field. The SENDER is in actor
+    # (0/absent for server messages). session = target session(s) (private
+    # messages); channel_id = target channel(s) (channel messages).
+    sender = message.actor
+    if sender == 0:
+        return  # server message (no actor)
     if sender == bot.my_session():
         return
     if message.channel_id and bot.channel is not None \
