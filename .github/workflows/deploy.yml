@@ -1,0 +1,42 @@
+# Push-triggered deployment: on push to main, SSH to each machine and run
+# pull + install-deps + restart. Requires repo secrets:
+#   PI_HOST, PI_USER, PI_SSH_KEY, TOWER_HOST, TOWER_USER, TOWER_SSH_KEY
+# Use the machines' Tailscale hostnames for the *_HOST values (GitHub
+# runners cannot reach LAN IPs).
+#
+# Note: the tower job fails when the tower is asleep — expected. The
+# boot-time llm-sync.service oneshot (see SETUP.md §9) picks up any missed
+# push at the tower's next boot.
+
+name: deploy
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  pi:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.PI_HOST }}
+          username: ${{ secrets.PI_USER }}
+          key: ${{ secrets.PI_SSH_KEY }}
+          script: |
+            sudo -u pihole git -C /opt/llm_server pull --ff-only
+            sudo -u pihole /opt/llm_server/pi/.venv/bin/pip install -q -r /opt/llm_server/pi/requirements.txt
+            sudo systemctl restart pi-trigger
+
+  tower:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.TOWER_HOST }}
+          username: ${{ secrets.TOWER_USER }}
+          key: ${{ secrets.TOWER_SSH_KEY }}
+          script: |
+            sudo -u mason_callahan git -C /opt/llm_server pull --ff-only
+            sudo -u mason_callahan /opt/llm_server/tower/.venv/bin/pip install -q -r /opt/llm_server/tower/requirements.txt
+            sudo systemctl restart tower-server

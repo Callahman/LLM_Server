@@ -100,7 +100,13 @@ def load_whisper_model():
     if whisper_model is not None:
         return
     log.info("loading Whisper model %r (first load may take a while)...", WHISPER_MODEL_SIZE)
-    whisper_model = whisper.load_model(WHISPER_MODEL_SIZE)
+    # device="cpu": openai-whisper auto-selects CUDA when a GPU is present.
+    # On machines whose PyTorch build has no kernels for the installed GPU
+    # (CUDA error: no kernel image is available for execution on the device),
+    # CPU is the safe choice — and fast enough for Whisper base on short
+    # voice messages. If you have a matching torch/GPU build, pass
+    # device="cuda" here instead.
+    whisper_model = whisper.load_model(WHISPER_MODEL_SIZE, device="cpu")
     log.info("Whisper model ready")
 
 
@@ -183,14 +189,15 @@ def on_sound(session, name, pcm):
 
 def on_text(message):
     # message: mumble_pb2.TextMessage (already running in its own thread)
-    if message.type == 0:  # server message
-        return
+    # Mumble's TextMessage has no "type" field — derive it from the
+    # addressing fields: empty session = server message, channel_id set
+    # = channel message, otherwise private message.
     if not message.session:
-        return
+        return  # server message
     sender = message.session[0]
     if sender == bot.my_session():
         return
-    if message.type == 1 and message.channel_id and bot.channel is not None \
+    if message.channel_id and bot.channel is not None \
             and message.channel_id[0] != bot.channel["channel_id"]:
         return
     user = bot.mumble.users.get(sender)

@@ -11,6 +11,34 @@ Devices involved:
 
 ---
 
+## 0. Code deployment model (git)
+
+The code on each machine is a **git checkout** of this repo — not a file
+copy. The repo lives on a private git remote (e.g. a private GitHub repo);
+the folder you edit on your desktop is just another clone of it.
+
+- **Source of truth**: the git remote (e.g. `git@github.com:<you>/LLM_Server.git`)
+- **Each machine**: one checkout at `/opt/llm_server` (the repo root
+  contains both `pi/` and `tower/`; each machine runs the relevant service)
+- **Secrets stay local**: `.env` files are gitignored — create them on the
+  machine from `.env.example`. They are never committed and survive updates.
+- **Updates**: `git pull` + `pip install -r requirements.txt` + service
+  restart (see §9).
+
+One-time prerequisite — publish the repo (run on the machine where you edit
+the code):
+
+```bash
+git init
+git add .
+git commit -m "initial"
+git remote add origin git@github.com:<you>/LLM_Server.git
+git push -u origin main
+```
+
+(`.gitignore` ships in the repo so `.env`, `.venv/`, and bytecode are never
+committed — check `git status` before the first push.)
+
 ## 1. Pi — Mumble server (murmurd)
 
 ```bash
@@ -69,8 +97,7 @@ the couch).
 # system deps (libopus is needed to build pymumble's opuslib dependency)
 sudo apt install -y libopus-dev python3-venv
 
-sudo mkdir -p /opt/llm_server
-sudo cp -r <this-repo>/pi /opt/llm_server/pi
+sudo git clone git@github.com:<you>/LLM_Server.git /opt/llm_server
 cd /opt/llm_server/pi
 python3 -m venv .venv
 .venv/bin/pip install -r requirements.txt
@@ -94,8 +121,7 @@ sudo apt install -y libopus-dev ffmpeg python3-venv
 sudo systemctl enable --now ollama
 ollama pull qwen3.5:latest
 
-sudo mkdir -p /opt/llm_server
-sudo cp -r <this-repo>/tower /opt/llm_server/tower
+sudo git clone git@github.com:<you>/LLM_Server.git /opt/llm_server
 cd /opt/llm_server/tower
 python3 -m venv .venv
 .venv/bin/pip install -r requirements.txt   # torch is a large download
@@ -152,7 +178,70 @@ Discord-only values (bot token, channel IDs) are gone for good.
 7. **Leave** the channel — after the grace period (5 min) the trigger posts
    *"Server going idle."* and closes the SSH keepalive.
 
-## 9. Tuning
+## 9. Updating code and automating deploys
+
+**Manual update** (on the machine — tower's example; use `pi/` and
+`pi-trigger` on the Pi):
+
+```bash
+git -C /opt/llm_server pull --ff-only
+/opt/llm_server/tower/.venv/bin/pip install -q -r /opt/llm_server/tower/requirements.txt
+sudo systemctl restart tower-server
+```
+
+`pip install -q -r` is idempotent — instant when nothing changed, but picks
+up dependency changes (e.g. the pinned pymumble branch). `--ff-only` keeps
+the machines from drifting into divergent histories.
+
+**Push-triggered (GitHub Actions)**: commit + push from your desktop and the
+machines update themselves. `.github/workflows/deploy.yml` ships in the repo
+— it SSHes to each machine and runs the three commands above. Add to the
+repo's secrets: `PI_HOST`, `PI_USER`, `PI_SSH_KEY`, `TOWER_HOST`,
+`TOWER_USER`, `TOWER_SSH_KEY`. Use the machines' **Tailscale** hostnames for
+the `*_HOST` values (GitHub runners can't reach LAN IPs).
+
+**Sleeping-tower catch-up**: if a push lands while the tower is asleep, the
+SSH job can't reach it. A boot-time oneshot pulls the latest code before the
+bot starts, so the tower picks up any missed push at its next boot:
+
+```ini
+# /etc/systemd/system/llm-sync.service
+[Unit]
+Description=Pull latest LLM_Server code at boot
+Before=tower-server.service
+
+[Service]
+Type=oneshot
+User=<tower-user>
+ExecStart=/usr/bin/git -C /opt/llm_server pull --ff-only
+ExecStart=/opt/llm_server/tower/.venv/bin/pip install -q -r /opt/llm_server/tower/requirements.txt
+
+[Install]
+WantedBy=multi-user.target
+```
+
+```bash
+sudo systemctl enable llm-sync
+```
+
+**Simpler alternative (no Actions)**: a cron job on the always-on Pi that
+pulls every 15 minutes and restarts only if HEAD changed; the tower uses
+just the boot oneshot above.
+
+**Converting an existing copy deployment** (if `/opt/llm_server` was
+deployed as a file copy): adopt the directory into git in place — untracked
+files (`.env`, `.venv`) are untouched, repo files are overwritten with the
+remote versions:
+
+```bash
+cd /opt/llm_server
+git init -b main
+git remote add origin git@github.com:<you>/LLM_Server.git
+git fetch origin
+git reset --hard origin/main
+```
+
+## 10. Tuning
 
 | Setting (tower `.env`) | Default | Meaning |
 |---|---|---|
@@ -164,7 +253,7 @@ Discord-only values (bot token, channel IDs) are gone for good.
 | `GRACE_SECONDS` (pi) | `300` | Idle grace before the keepalive closes |
 | `POST_STATUS` (pi) | `1` | Post waking/idle status in the channel |
 
-## 10. Troubleshooting
+## 11. Troubleshooting
 
 ```bash
 journalctl -u pi-trigger -f        # Pi trigger logs

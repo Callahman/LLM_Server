@@ -142,11 +142,14 @@ class Trigger:
 
     def _cb_text(self, message):
         # The library runs text callbacks in their own thread.
-        if message.type == 0 or not message.session:
-            return
+        # Mumble's TextMessage has no "type" field — derive it from the
+        # addressing fields: empty session = server message, channel_id
+        # set = channel message, otherwise private message.
+        if not message.session:
+            return  # server message
         if message.session[0] == self.mumble.users.myself_session:
             return
-        if message.type == 1 and message.channel_id and self.channel is not None \
+        if message.channel_id and self.channel is not None \
                 and message.channel_id[0] != self.channel["channel_id"]:
             return
         user = self.mumble.users.get(message.session[0])
