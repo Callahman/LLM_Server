@@ -239,6 +239,7 @@ git init -b main
 git remote add origin git@github.com:<you>/LLM_Server.git
 git fetch origin
 git reset --hard origin/main
+git branch --set-upstream-to=origin/main main   # so bare `git pull` works
 ```
 
 ## 10. Tuning

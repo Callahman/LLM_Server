@@ -1,11 +1,11 @@
 # pymumble pulls in opuslib (needs libopus-dev to build) and protobuf
-# NOTE: pin the steff85 1.7 branch. Do NOT use:
-# - the PyPI release (0.4 / 1.6.1): predates the removal of ssl.wrap_socket
-#   in Python 3.12 — crashes with
-#   "AttributeError: module 'ssl' has no attribute 'wrap_socket'"
-# - other py3 forks (e.g. azlux/pymumble @ pymumble_py3): a port of the same
-#   old code, still uses ssl.wrap_socket
-# The 1.7 branch uses the modern SSLContext API, supports client_type, and
-# builds on modern Python (3.10-3.14).
-pymumble @ https://github.com/steff85/pymumble/archive/refs/heads/1.7.zip
+# NOTE: pymumble 1.7 is installed from a VENDED WHEEL (../vendor), not a URL.
+# The original source (steff85/pymumble @ 1.7) now 404s on GitHub, the PyPI
+# release and the azlux fork still use ssl.wrap_socket (removed in Python
+# 3.12), and 1.7 is the version with the modern SSLContext API + client_type.
+# Each machine's 1.7 wheel was built locally during the original install and
+# is committed under vendor/ — pip selects the wheel matching this machine's
+# platform tags. See vendor/README.md.
+--find-links=../vendor
+pymumble==1.7
 python-dotenv>=1.0.0
