@@ -178,7 +178,7 @@ Discord-only values (bot token, channel IDs) are gone for good.
 7. **Leave** the channel — after the grace period (5 min) the trigger posts
    *"Server going idle."* and closes the SSH keepalive.
 
-## 9. Updating code and automating deploys
+## 9. Updating code
 
 **Manual update** (on the machine — tower's example; use `pi/` and
 `pi-trigger` on the Pi):
@@ -190,19 +190,12 @@ sudo systemctl restart tower-server
 ```
 
 `pip install -q -r` is idempotent — instant when nothing changed, but picks
-up dependency changes (e.g. the pinned pymumble branch). `--ff-only` keeps
-the machines from drifting into divergent histories.
+up dependency changes (e.g. the vendored pymumble). `--ff-only` keeps the
+machines from drifting into divergent histories.
 
-**Push-triggered (GitHub Actions)**: commit + push from your desktop and the
-machines update themselves. `.github/workflows/deploy.yml` ships in the repo
-— it SSHes to each machine and runs the three commands above. Add to the
-repo's secrets: `PI_HOST`, `PI_USER`, `PI_SSH_KEY`, `TOWER_HOST`,
-`TOWER_USER`, `TOWER_SSH_KEY`. Use the machines' **Tailscale** hostnames for
-the `*_HOST` values (GitHub runners can't reach LAN IPs).
-
-**Sleeping-tower catch-up**: if a push lands while the tower is asleep, the
-SSH job can't reach it. A boot-time oneshot pulls the latest code before the
-bot starts, so the tower picks up any missed push at its next boot:
+**Sleeping-tower catch-up**: if a change lands while the tower is asleep, a
+boot-time oneshot pulls the latest code before the bot starts, so the tower
+picks it up at its next boot:
 
 ```ini
 # /etc/systemd/system/llm-sync.service
@@ -224,9 +217,8 @@ WantedBy=multi-user.target
 sudo systemctl enable llm-sync
 ```
 
-**Simpler alternative (no Actions)**: a cron job on the always-on Pi that
-pulls every 15 minutes and restarts only if HEAD changed; the tower uses
-just the boot oneshot above.
+**Optional (Pi)**: a cron job that pulls every 15 minutes and restarts only
+if HEAD changed, if you don't want to remember to pull.
 
 **Converting an existing copy deployment** (if `/opt/llm_server` was
 deployed as a file copy): adopt the directory into git in place — untracked
