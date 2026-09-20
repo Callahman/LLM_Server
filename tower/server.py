@@ -2,7 +2,8 @@
 
 Runs as a systemd service on the tower. Threads:
   - pymumble Mumble thread (library; receives audio/text, sends commands)
-  - worker thread: transcribe -> LLM -> push (one job at a time)
+  - worker thread: utterance detection -> transcribe -> archive (one job at a time)
+  - llm worker thread: ask LLM -> push reply (decoupled from transcription)
   - keep-awake thread: lockfile for the tower's idle-shutdown integration
 """
 
@@ -37,7 +38,20 @@ MUMBLE_KEY = os.getenv("MUMBLE_KEY") or None
 TARGET_CHANNEL = os.getenv("TARGET_CHANNEL", "Home")
 
 # --- Whisper / LLM ---
+# Accuracy/latency tradeoff: base is fastest, small is the recommended
+# default for a casual pipeline, medium is the most accurate (slowest on CPU).
 WHISPER_MODEL_SIZE = os.getenv("WHISPER_MODEL_SIZE", "base")
+# Language of the speakers (ISO 639-1). Setting it skips per-utterance
+# language detection, which is unreliable on short, noisy clips.
+WHISPER_LANGUAGE = os.getenv("WHISPER_LANGUAGE", "en")
+# Utterances whose no_speech_prob exceeds this are treated as silence.
+NO_SPEECH_PROB_MAX = float(os.getenv("NO_SPEECH_PROB_MAX", "0.6"))
+# Utterances whose avg_logprob is below this are treated as too unreliable
+# to send to the LLM.
+AVG_LOGPROB_MIN = float(os.getenv("AVG_LOGPROB_MIN", "-1.0"))
+# Silero VAD trims leading/trailing silence before transcribing
+# (downloads the VAD model on first run).
+WHISPER_VAD_FILTER = os.getenv("WHISPER_VAD_FILTER", "1") == "1"
 OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434").rstrip("/")
 OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "qwen3.5:latest")
 LLM_SYSTEM_PROMPT = os.getenv(
@@ -90,6 +104,7 @@ def activity(event, **fields):
 
 # --- shared state ---
 job_queue = queue.Queue()
+llm_queue = queue.Queue()
 whisper_model = None
 bot = None
 pipeline = None
@@ -119,11 +134,40 @@ def wait_for_whisper(timeout=600):
     return True
 
 
+def to_16khz(pcm_b):
+    """48 kHz int16 PCM -> 16 kHz float32 in [-1, 1].
+
+    Whisper expects 16 kHz input and does NOT resample; feeding it the
+    pipeline's 48 kHz audio makes the model hear speech 3x faster and 3x
+    higher-pitched (garbage transcripts). 48/16 == 3 exactly, and Mumble's
+    Opus voice stream is already band-limited to ~8 kHz, so a plain 3:1
+    decimation is exact and needs no anti-aliasing filter.
+    """
+    samples = np.frombuffer(pcm_b, dtype=np.int16).astype(np.float32) / 32768.0
+    return samples[::3]
+
+
 def transcribe(wav_b):
-    pcm = wav_b[44:]  # skip the RIFF header
-    audio = np.frombuffer(pcm, dtype=np.int16).astype(np.float32) / 32768.0
-    result = whisper_model.transcribe(audio, fp16=False)
-    return (result.get("text") or "").strip()
+    """Transcribe one utterance WAV (48 kHz).
+
+    Returns (text, gate): gate is None for a usable transcript, or a short
+    reason ("no_speech" / "low_confidence") when the utterance is judged to
+    be silence or too unreliable to send to the LLM.
+    """
+    audio = to_16khz(wav_b[44:])  # skip the RIFF header, resample 48k -> 16k
+    result = whisper_model.transcribe(
+        audio,
+        fp16=False,
+        language=WHISPER_LANGUAGE,
+        condition_on_previous_text=False,  # utterances are independent
+        vad_filter=WHISPER_VAD_FILTER,
+    )
+    text = (result.get("text") or "").strip()
+    if result.get("no_speech_prob", 0.0) > NO_SPEECH_PROB_MAX:
+        return "", "no_speech"
+    if result.get("avg_logprob", 0.0) < AVG_LOGPROB_MIN:
+        return "", "low_confidence"
+    return text, None
 
 
 llm = OpenAI(api_key="ollama", base_url=OLLAMA_BASE_URL + "/v1")
@@ -209,9 +253,10 @@ def on_text(message):
     job_queue.put(("text", text, name, None))
 
 
-# --- worker ---
+# --- workers ---
 
 def worker():
+    """Transcribe utterances and hand finished text to the LLM stage."""
     while True:
         kind, payload, speaker, extra = job_queue.get()
         try:
@@ -221,9 +266,10 @@ def worker():
                               speaker)
                     continue
                 wav_b, duration = payload, extra
-                spoken = transcribe(wav_b)
+                spoken, gate = transcribe(wav_b)
                 if not spoken:
-                    activity("transcription_empty", speaker=speaker, duration=duration)
+                    activity("transcription_empty", speaker=speaker,
+                             duration=duration, gate=gate)
                     continue
                 activity("transcription", speaker=speaker, text=spoken, duration=duration)
                 try:
@@ -232,18 +278,30 @@ def worker():
                     enforce_retention()
                 except Exception as e:
                     log.warning("archive failed: %s", e)
-                reply = ask_llm(speaker, spoken)
-                activity("llm_reply", speaker=speaker, reply=reply, via="voice")
-                if reply:
-                    bot.push(reply)
+                llm_queue.put(("voice", spoken, speaker))
             elif kind == "text":
-                reply = ask_llm(speaker, payload)
-                activity("llm_reply", speaker=speaker, reply=reply, via="text")
-                if reply:
-                    bot.push(reply)
+                llm_queue.put(("text", payload, speaker))
         except Exception as e:
             log.exception("job failed")
             activity("job_failed", speaker=speaker, error=str(e))
+
+
+def llm_worker():
+    """Ask the LLM and push replies, off the transcription path.
+
+    LLM calls take 10s+; running them here keeps new utterances being
+    transcribed while the model is still answering the previous one.
+    """
+    while True:
+        via, text, speaker = llm_queue.get()
+        try:
+            reply = ask_llm(speaker, text)
+            activity("llm_reply", speaker=speaker, reply=reply, via=via)
+            if reply:
+                bot.push(reply)
+        except Exception as e:
+            log.exception("LLM job failed")
+            activity("llm_failed", speaker=speaker, error=str(e))
 
 
 # --- keep-awake ---
@@ -294,6 +352,7 @@ def main():
         password=MUMBLE_PASSWORD, certfile=MUMBLE_CERT, keyfile=MUMBLE_KEY,
     )
     threading.Thread(target=worker, daemon=True).start()
+    threading.Thread(target=llm_worker, daemon=True).start()
     threading.Thread(target=keep_awake, daemon=True).start()
     log.info("connecting to Mumble %s:%s as %r (channel %r)...",
              MUMBLE_HOST, MUMBLE_PORT, MUMBLE_USER, TARGET_CHANNEL)

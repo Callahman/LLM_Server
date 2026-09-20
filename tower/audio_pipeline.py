@@ -6,11 +6,12 @@ end of an utterance; finished utterances are emitted to the job queue as
 WAV bytes + speaker name + duration.
 """
 
-import array
 import logging
 import struct
 import time
 from collections import deque
+
+import numpy as np
 
 log = logging.getLogger("audio_pipeline")
 
@@ -20,16 +21,18 @@ BYTES_PER_SECOND = SAMPLE_RATE * SAMPLE_WIDTH  # 96000
 
 
 def rms_int16(pcm):
-    """RMS level of a 16-bit little-endian PCM buffer."""
-    samples = array.array("h")
-    samples.frombytes(pcm[:len(pcm) - (len(pcm) % 2)])
-    n = len(samples)
+    """RMS level of a 16-bit little-endian PCM buffer.
+
+    Runs on the Mumble callback thread for every 10 ms frame per user, so
+    it must stay fast: numpy vectorization instead of a per-sample Python
+    loop (a pure-Python loop here costs real callback latency and risks
+    Mumble underruns).
+    """
+    n = len(pcm) - (len(pcm) % 2)
     if n == 0:
         return 0
-    total = 0
-    for s in samples:
-        total += s * s
-    return int((total / n) ** 0.5)
+    samples = np.frombuffer(pcm[:n], dtype=np.int16).astype(np.float32)
+    return float(np.sqrt(np.mean(samples * samples)))
 
 
 def wav_bytes(pcm):
