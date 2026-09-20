@@ -23,6 +23,7 @@ from openai import OpenAI
 import whisper
 
 import audio_pipeline
+import harness
 import mumble_client
 
 load_dotenv()
@@ -59,6 +60,16 @@ LLM_SYSTEM_PROMPT = os.getenv(
     "You are a helpful assistant. Answer the user's question or comment.",
 )
 MAX_RETRIES = int(os.getenv("MAX_RETRIES", "3"))
+
+# --- Code-execution harness (optional) ---
+# Wrap the LLM with smolagents CodeAgent + a Docker-sandboxed Python executor
+# confined to SANDBOX_DIR. Requires Docker on the tower (see SETUP.md §6.1).
+# If the harness is unavailable at runtime, messages fall back to the plain
+# single-shot LLM call.
+LLM_HARNESS = os.getenv("LLM_HARNESS", "0") == "1"
+SANDBOX_DIR = os.path.expanduser(os.getenv("SANDBOX_DIR", "~/llm_server/sandbox"))
+HARNESS_MAX_STEPS = int(os.getenv("HARNESS_MAX_STEPS", "6"))
+HARNESS_TIMEOUT_SECONDS = int(os.getenv("HARNESS_TIMEOUT_SECONDS", "300"))
 
 # --- Utterance detection ---
 AUDIO_RMS_THRESHOLD = int(os.getenv("AUDIO_RMS_THRESHOLD", "400"))
@@ -108,6 +119,7 @@ llm_queue = queue.Queue()
 whisper_model = None
 bot = None
 pipeline = None
+code_harness = None
 
 
 def load_whisper_model():
@@ -190,6 +202,22 @@ def ask_llm(speaker, text):
             log.warning("LLM attempt %d/%d failed: %s", attempt, MAX_RETRIES, e)
             time.sleep(2 * attempt)
     raise last_err
+
+
+def llm_reply(speaker, text):
+    """Ask the LLM, via the code-execution harness when enabled.
+
+    Falls back to the plain single-shot call whenever the harness is
+    unavailable (no smolagents, no Docker, timeout, build failure) so the
+    bot keeps answering.
+    """
+    if code_harness is not None:
+        try:
+            return code_harness.ask(speaker, text)
+        except harness.HarnessUnavailable as e:
+            log.warning("harness unavailable (%s); falling back to plain LLM", e)
+            activity("harness_fallback", reason=str(e))
+    return ask_llm(speaker, text)
 
 
 def archive_wav(wav_b, speaker):
@@ -295,7 +323,7 @@ def llm_worker():
     while True:
         via, text, speaker = llm_queue.get()
         try:
-            reply = ask_llm(speaker, text)
+            reply = llm_reply(speaker, text)
             activity("llm_reply", speaker=speaker, reply=reply, via=via)
             if reply:
                 bot.push(reply)
@@ -336,7 +364,7 @@ def main():
             "Missing required config: MUMBLE_HOST — set it in tower/.env "
             "(see tower/.env.example for the template)."
         )
-    global bot, pipeline
+    global bot, pipeline, code_harness
     pipeline = audio_pipeline.AudioPipeline(
         job_queue,
         rms_threshold=AUDIO_RMS_THRESHOLD,
@@ -351,6 +379,16 @@ def main():
         on_sound=on_sound, on_text=on_text,
         password=MUMBLE_PASSWORD, certfile=MUMBLE_CERT, keyfile=MUMBLE_KEY,
     )
+    if LLM_HARNESS:
+        code_harness = harness.CodeHarness(
+            model_id=OLLAMA_MODEL,
+            api_base=OLLAMA_BASE_URL + "/v1",
+            sandbox_dir=SANDBOX_DIR,
+            max_steps=HARNESS_MAX_STEPS,
+            timeout_seconds=HARNESS_TIMEOUT_SECONDS,
+            system_prompt=LLM_SYSTEM_PROMPT,
+        )
+        log.info("code-execution harness enabled (sandbox %s)", SANDBOX_DIR)
     threading.Thread(target=worker, daemon=True).start()
     threading.Thread(target=llm_worker, daemon=True).start()
     threading.Thread(target=keep_awake, daemon=True).start()

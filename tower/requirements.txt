@@ -13,3 +13,8 @@ python-dotenv>=1.0.0
 openai-whisper>=20231117
 openai>=1.0.0
 numpy>=1.24.0
+# Code-execution harness (optional, LLM_HARNESS=1): smolagents CodeAgent with
+# a Docker-sandboxed Python executor. Pinned: the executor kwargs API has
+# shifted across releases — re-verify the CodeAgent/DockerExecutor signatures
+# (SETUP.md §6.1) before bumping.
+smolagents[docker,openai]==1.26.0

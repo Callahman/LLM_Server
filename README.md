@@ -54,6 +54,7 @@ LLM_Server/
 │   └── pi-trigger.service     # systemd unit
 └── tower/
     ├── server.py              # entry point: wires everything together
+    ├── harness.py             # optional: smolagents CodeAgent + Docker-sandboxed code execution
     ├── mumble_client.py       # pymumble connection wrapper + push
     ├── audio_pipeline.py      # per-user buffer + utterance detection
     ├── requirements.txt
@@ -80,3 +81,8 @@ LLM_Server/
   committed — `pi/.env.example` ships with stand-in placeholders, and the real
   `.env` is gitignored. Set your own values in `pi/.env` on deploy (see
   `SETUP.md` §7).
+- **Code-execution harness (optional)**: with `LLM_HARNESS=1`, the LLM is
+  wrapped in smolagents' `CodeAgent` — the model can write and run Python in
+  a Docker container confined to `SANDBOX_DIR` (no network, capped RAM/CPU).
+  If Docker is unavailable, messages fall back to the plain LLM (see
+  `SETUP.md` §6.1).

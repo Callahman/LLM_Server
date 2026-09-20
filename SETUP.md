@@ -147,6 +147,47 @@ The service blocks on its first Mumble connect and auto-reconnects every ~10 s
 if the Pi is unreachable (e.g., the tower booted before the Pi finished
 starting).
 
+### 6.1 Code-execution harness (optional, `LLM_HARNESS=1`)
+
+With `LLM_HARNESS=1`, the LLM is wrapped in smolagents' `CodeAgent`: the
+model can write and run Python inside a Docker container confined to
+`SANDBOX_DIR` (no network, 512 MB RAM, 1 CPU, 128 PIDs). Requires Docker on
+the tower:
+
+```bash
+sudo apt install -y docker.io
+sudo usermod -aG docker <tower-user>
+sudo systemctl enable --now docker
+mkdir -p ~/llm_server/sandbox
+```
+
+- **Restart the service after `usermod`** — systemd snapshots the user's
+  supplementary groups when the service starts, so the new `docker` group
+  only takes effect after `sudo systemctl restart tower-server`.
+- **First harness message**: Docker pulls the smolagents executor image and
+  the agent creates its container — the first reply is noticeably slow.
+- **Degradation**: if Docker is down or smolagents is missing, messages fall
+  back to the plain single-shot LLM (a `harness_fallback` line lands in the
+  activity log) — the bot keeps answering, just without code execution.
+  After 5 consecutive failures the harness disables itself until the service
+  restarts.
+- **Verify the installed API** (smolagents' executor kwargs have shifted
+  across releases; the requirements pin `1.26.0`). Run this after
+  `pip install -r requirements.txt`; a mismatch between this output and what
+  `tower/harness.py` expects shows up as a `harness_fallback` line:
+
+```bash
+/opt/llm_server/tower/.venv/bin/python - <<'EOF'
+import inspect, smolagents
+from smolagents import CodeAgent, DockerExecutor, OpenAIModel
+print("smolagents", smolagents.__version__)
+print("CodeAgent.__init__:", inspect.signature(CodeAgent.__init__))
+print("CodeAgent.run:", inspect.signature(CodeAgent.run))
+print("DockerExecutor.__init__:", inspect.signature(DockerExecutor.__init__))
+print("OpenAIModel.__init__:", inspect.signature(OpenAIModel.__init__))
+EOF
+```
+
 ## 7. Tower values to set in `pi/.env`
 
 The tower's connection values are transport-agnostic (they were carried over
@@ -243,6 +284,10 @@ git branch --set-upstream-to=origin/main main   # so bare `git pull` works
 | `MAX_UTTERANCE_MS` | `30000` | Force-end very long utterances |
 | `MIN_UTTERANCE_MS` | `300` | Drop blips shorter than this |
 | `WHISPER_MODEL_SIZE` | `base` | `small` = better accuracy, slower |
+| `LLM_HARNESS` | `0` | `1` = wrap the LLM with the smolagents code-execution harness (needs Docker, see §6.1) |
+| `SANDBOX_DIR` | `~/llm_server/sandbox` | Dedicated dir the sandbox container can read/write |
+| `HARNESS_MAX_STEPS` | `6` | Max agent steps per message |
+| `HARNESS_TIMEOUT_SECONDS` | `300` | Wall-clock cap per harness run |
 | `GRACE_SECONDS` (pi) | `300` | Idle grace before the keepalive closes |
 | `POST_STATUS` (pi) | `1` | Post waking/idle status in the channel |
 
