@@ -86,3 +86,11 @@ LLM_Server/
   a Docker container confined to `SANDBOX_DIR` (no network, capped RAM/CPU).
   If Docker is unavailable, messages fall back to the plain LLM (see
   `SETUP.md` §6.1).
+- **Shared conversation**: the LLM keeps one conversation for the whole
+  channel — each new prompt is sent with the recent prompts and replies of
+  all speakers (capped at `HISTORY_MAX_TURNS` turns). The context window
+  lives in `CONVERSATION_DIR` (survives restarts; wiped by `/clear` or a
+  spoken "clear chat history"), while every prompt and reply is also
+  archived permanently under `TEXT_ARCHIVE_DIR` / `REPLY_ARCHIVE_DIR`.
+  The activity log keeps only short snippets (debugging); full content
+  lives in the archives.

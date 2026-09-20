@@ -123,14 +123,22 @@ class CodeHarness:
         except Exception:
             pass
 
-    def ask(self, speaker, text):
+    def ask(self, speaker, text, history=()):
         """Run one user message through the agent; return the final text.
 
+        history: the shared channel's recent turns as (role, content),
+        prepended to the task so the agent sees the conversation.
         Raises HarnessUnavailable on timeout/failure so the caller can fall
         back to the plain LLM.
         """
         agent = self._get_agent()
-        task = "The user '%s' said: %s" % (speaker, text)
+        parts = []
+        if history:
+            parts.append("Earlier conversation in this channel:")
+            parts += ["Assistant: %s" % content if role == "assistant" else content
+                      for role, content in history]
+        parts.append("The user '%s' said: %s" % (speaker, text))
+        task = "\n".join(parts)
         # A throwaway executor per call on purpose: we must NOT call
         # ex.shutdown(wait=True) after a timeout — that would block until the
         # (now container-killed) run dies on its own.

@@ -284,6 +284,8 @@ git branch --set-upstream-to=origin/main main   # so bare `git pull` works
 | `MAX_UTTERANCE_MS` | `30000` | Force-end very long utterances |
 | `MIN_UTTERANCE_MS` | `300` | Drop blips shorter than this |
 | `WHISPER_MODEL_SIZE` | `base` | `small` = better accuracy, slower |
+| `HISTORY_MAX_TURNS` | `10` | Prompt+reply pairs of the shared channel history sent with each new prompt (0 = stateless) |
+| `CONVERSATION_DIR` | `~/llm_server/conversation` | Clearable context window (last N pairs); `/clear` or a spoken "clear chat history" wipes only this — the archives are untouched |
 | `LLM_HARNESS` | `0` | `1` = wrap the LLM with the smolagents code-execution harness (needs Docker, see §6.1) |
 | `SANDBOX_DIR` | `~/llm_server/sandbox` | Dedicated dir the sandbox container can read/write |
 | `HARNESS_MAX_STEPS` | `6` | Max agent steps per message |
