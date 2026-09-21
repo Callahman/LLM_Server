@@ -45,6 +45,7 @@ Pi and two small Python services.
 LLM_Server/
 ├── README.md                  # this file
 ├── SETUP.md                   # full deployment guide (read this)
+├── .gitignore                 # keeps .env, .venv/, and bytecode out of git
 ├── murmurd/
 │   └── mumble-server.ini      # reference murmurd config for the Pi
 ├── pi/
@@ -52,6 +53,9 @@ LLM_Server/
 │   ├── requirements.txt
 │   ├── .env.example           # template with stand-in placeholders
 │   └── pi-trigger.service     # systemd unit
+├── vendor/
+│   ├── README.md              # why pymumble is vendored (upstream source 404s)
+│   └── pymumble-1.7*.whl      # prebuilt vendored wheel(s), per platform tag
 └── tower/
     ├── server.py              # entry point: wires everything together
     ├── harness.py             # optional: smolagents CodeAgent + Docker-sandboxed code execution
@@ -70,13 +74,16 @@ LLM_Server/
 
 ## Notes
 
-- `pymumble` (1.6.1) is the Mumble client library. Its media path is
-  TCP-tunneled only (no UDP), which is fine for a self-hosted LAN/tailnet.
-  Audio arrives already decoded as 16-bit 48 kHz mono PCM — no Opus decoding
-  in our code.
-- Callbacks run in the pymumble thread; our services keep that thread short
-  (audio frames are handed to a worker queue; the library itself runs text
-  callbacks in their own thread).
+- `pymumble` (1.7) is the Mumble client library, installed from a prebuilt
+  vendored wheel under `vendor/` (the original 1.7 source now 404s upstream
+  and the other releases still use `ssl.wrap_socket`, removed in Python 3.12 —
+  see `vendor/README.md`). Its media path is TCP-tunneled only (no UDP), which
+  is fine for a self-hosted LAN/tailnet. Audio arrives already decoded as
+  16-bit 48 kHz mono PCM — no Opus decoding in our code.
+- Callbacks run in the pymumble thread; our services keep that thread fast —
+  audio frames are processed there (RMS check + per-user buffering, numpy
+  vectorized) and only finished utterances are handed to a worker queue; the
+  library itself runs text callbacks in their own thread.
 - The tower connection values (host, WOL MAC, SSH user/key) are **not**
   committed — `pi/.env.example` ships with stand-in placeholders, and the real
   `.env` is gitignored. Set your own values in `pi/.env` on deploy (see
@@ -91,6 +98,8 @@ LLM_Server/
   all speakers (capped at `HISTORY_MAX_TURNS` turns). The context window
   lives in `CONVERSATION_DIR` (survives restarts; wiped by `/clear` or a
   spoken "clear chat history"), while every prompt and reply is also
-  archived permanently under `TEXT_ARCHIVE_DIR` / `REPLY_ARCHIVE_DIR`.
-  The activity log keeps only short snippets (debugging); full content
-  lives in the archives.
+  archived under `TEXT_ARCHIVE_DIR` / `REPLY_ARCHIVE_DIR` (and each utterance
+  WAV under `AUDIO_ARCHIVE_DIR`). Archives are never touched by `/clear`, but
+  they are size-capped at `AUDIO_RETENTION_GB` (default 5 GB) — the oldest
+  files are deleted first. The activity log keeps only short snippets
+  (debugging); full content lives in the archives.

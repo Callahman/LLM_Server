@@ -127,6 +127,7 @@ python3 -m venv .venv
 .venv/bin/pip install -r requirements.txt   # torch is a large download
 cp .env.example .env          # set MUMBLE_HOST = Pi's IP or ts.net hostname
 
+# install the systemd unit (edit User= first)
 sudo cp tower-server.service /etc/systemd/system/
 sudo systemctl daemon-reload
 sudo systemctl enable --now tower-server.service
@@ -284,13 +285,29 @@ git branch --set-upstream-to=origin/main main   # so bare `git pull` works
 | `MAX_UTTERANCE_MS` | `30000` | Force-end very long utterances |
 | `MIN_UTTERANCE_MS` | `300` | Drop blips shorter than this |
 | `WHISPER_MODEL_SIZE` | `base` | `small` = better accuracy, slower |
+| `WHISPER_LANGUAGE` | `en` | Speaker language (ISO 639-1); setting it skips per-utterance detection |
+| `NO_SPEECH_PROB_MAX` | `0.6` | Transcripts above this no_speech_prob are dropped as silence |
+| `AVG_LOGPROB_MIN` | `-1.0` | Transcripts below this avg_logprob are dropped as low-confidence |
+| `WHISPER_VAD_FILTER` | `1` | Trim leading/trailing silence with Silero VAD before transcribing |
+| `OLLAMA_MODEL` | `qwen3.5:latest` | Model tag exactly as shown by `ollama list` |
+| `OLLAMA_BASE_URL` | `http://localhost:11434` | Base URL of the Ollama instance |
+| `LLM_SYSTEM_PROMPT` | see code | System prompt sent to the LLM |
+| `MAX_RETRIES` | `3` | Retries for LLM calls |
 | `HISTORY_MAX_TURNS` | `10` | Prompt+reply pairs of the shared channel history sent with each new prompt (0 = stateless) |
 | `CONVERSATION_DIR` | `~/llm_server/conversation` | Clearable context window (last N pairs); `/clear` or a spoken "clear chat history" wipes only this — the archives are untouched |
+| `AUDIO_ARCHIVE_DIR` | `~/llm_server/archive` | Where each utterance WAV is archived |
+| `TEXT_ARCHIVE_DIR` | `~/llm_server/text` | Where user prompts (typed + transcripts) are archived |
+| `REPLY_ARCHIVE_DIR` | `~/llm_server/reply` | Where LLM replies are archived |
+| `AUDIO_RETENTION_GB` | `5` | Size cap per archive (audio, text, reply); the oldest files are deleted first |
 | `LLM_HARNESS` | `0` | `1` = wrap the LLM with the smolagents code-execution harness (needs Docker, see §6.1) |
 | `SANDBOX_DIR` | `~/llm_server/sandbox` | Dedicated dir the sandbox container can read/write |
 | `HARNESS_MAX_STEPS` | `6` | Max agent steps per message |
 | `HARNESS_TIMEOUT_SECONDS` | `300` | Wall-clock cap per harness run |
+| `KEEP_AWAKE_GRACE_SECONDS` | `300` | Grace after the last user leaves before the keep-awake lockfile is removed |
 | `GRACE_SECONDS` (pi) | `300` | Idle grace before the keepalive closes |
+| `WOL_WAIT_SECONDS` (pi) | `300` | Max seconds to wait for the tower to come up after WOL |
+| `PRESENCE_POLL_SECONDS` (pi) | `5` | How often to poll channel presence |
+| `IGNORE_USER` (pi) | `tower-bot` | Comma-separated usernames whose text must not trigger WOL |
 | `POST_STATUS` (pi) | `1` | Post waking/idle status in the channel |
 
 ## 11. Troubleshooting
