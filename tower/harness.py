@@ -11,6 +11,13 @@ Note: smolagents' executor kwargs API has shifted across releases; the
 requirements pin smolagents==1.26.0. If you bump the version, re-verify the
 CodeAgent/DockerExecutor signatures (see SETUP.md §6.1) — a mismatch shows
 up as a "harness_fallback" line in the activity log.
+
+Verified against 1.26.0 (2026-09): CodeAgent accepts executor_type/
+executor_kwargs as used here, but has NO additional_instructions kwarg —
+custom prompts go through prompt_templates
+(smolagents.agents.PromptTemplates). We deliberately use the built-in
+CodeAgent prompt: the channel's generic system prompt adds nothing to a
+code agent's instructions.
 """
 
 import concurrent.futures
@@ -57,6 +64,9 @@ class CodeHarness:
         self.sandbox_dir = os.path.abspath(os.path.expanduser(sandbox_dir))
         self.max_steps = max_steps
         self.timeout_seconds = timeout_seconds
+        # Retained for API stability (server.py passes LLM_SYSTEM_PROMPT), but
+        # NOT passed to CodeAgent: 1.26.0 has no additional_instructions
+        # kwarg, and we use the built-in CodeAgent prompt instead (see _build).
         self.system_prompt = system_prompt
         self._lock = threading.Lock()
         self._agent = None
@@ -85,7 +95,10 @@ class CodeHarness:
                 tools=[],
                 model=model,
                 max_steps=self.max_steps,
-                additional_instructions=self.system_prompt,
+                # 1.26.0 has no additional_instructions kwarg — custom prompts
+                # go via prompt_templates (PromptTemplates). Use the built-in
+                # CodeAgent prompt; the channel's generic system prompt adds
+                # nothing to a code agent's instructions.
                 executor_type="docker",
                 executor_kwargs={
                     "container_run_kwargs": {
