@@ -1,8 +1,8 @@
 """Code-execution harness: wraps the Ollama model with smolagents CodeAgent.
 
 The model gets a Docker-sandboxed Python executor confined to a dedicated
-directory (SANDBOX_DIR): no network, capped RAM/CPU/PIDs, read-only
-filesystem everywhere except the bind-mounted workspace. This module
+directory (SANDBOX_DIR): capped RAM/CPU/PIDs, read-only filesystem
+everywhere except the bind-mounted workspace. This module
 degrades gracefully — if smolagents isn't installed, Docker is unavailable,
 or a run fails/times out, ask() raises HarnessUnavailable and the server
 falls back to the plain single-shot LLM call.
@@ -39,11 +39,29 @@ class HarnessUnavailable(Exception):
 
 
 # Security defaults for the sandbox container (deliberate, not tuning knobs):
-# no network, 512 MB RAM, 1 CPU, 128 PIDs.
+# 512 MB RAM, 1 CPU, 128 PIDs.
+#
+# NOTE on networking: we do NOT disable the network here, and we do NOT pin
+# the container to an internal network. smolagents' DockerExecutor runs a
+# Jupyter kernel gateway inside the container and publishes its port to the
+# host's loopback (127.0.0.1:8888). Both "sealed" options break that
+# published port on this host:
+#   - network_disabled=True (network_mode="none") : the container has no
+#     network at all, so port 8888 cannot be published; the host's
+#     connection is refused and DockerExecutor construction fails with
+#     "Failed to initialize Jupyter kernel: ... Connection refused".
+#   - an internal Docker network (no external gateway) : Docker's
+#     internal-network iptables rules also block the host->container
+#     published port here (verified by the harness-de-risk test, 2026).
+# So the container runs on the default bridge, where published ports work.
+#
+# Trade-off (accepted, in favor of a working harness): on the default
+# bridge the sandboxed code CAN dial out to the LAN/internet (outbound).
+# The Jupyter kernel gateway itself remains loopback-only and is NOT
+# exposed to the network.
 _CONTAINER_RUN_KWARGS = {
     "mem_limit": "512m",
     "nano_cpus": 10 ** 9,
-    "network_disabled": True,
     "pids_limit": 128,
 }
 
